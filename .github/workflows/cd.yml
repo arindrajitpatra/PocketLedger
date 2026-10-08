@@ -14,7 +14,7 @@ jobs:
   deploy-dev:
     name: Deploy to Development (deploy-dev)
     runs-on: ubuntu-latest
-    environment: deploy-dev
+    environment: dev
 
     steps:
       - name: Checkout Repository Code
@@ -64,7 +64,7 @@ jobs:
     name: Deploy to QA (deploy-qa)
     needs: deploy-dev
     runs-on: ubuntu-latest
-    environment: deploy-qa
+    environment: qa
 
     steps:
       - name: Checkout Repository Code
@@ -116,7 +116,7 @@ jobs:
     name: Deploy to Staging (deploy-staging)
     needs: deploy-qa
     runs-on: ubuntu-latest
-    environment: deploy-staging
+    environment: staging
 
     steps:
       - name: Checkout Repository Code
@@ -168,7 +168,7 @@ jobs:
     name: Deploy to Production (deploy-production)
     needs: deploy-staging
     runs-on: ubuntu-latest
-    environment: deploy-production
+    environment: production
 
     steps:
       - name: Checkout Repository Code
