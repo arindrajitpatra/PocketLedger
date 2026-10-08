@@ -1,38 +1,98 @@
 name: PocketLedger CI/CD Pipeline
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ "main", "feature/*", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
 
 jobs:
+  # =========================================================================
+  # 1. CODE QUALITY & STATIC ANALYSIS
+  # Checks Python syntax, lints code format, and validates type definitions.
+  # =========================================================================
   quality:
-    name: Code Quality Checks
+    name: Code Quality & Static Analysis
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install Ruff
+      - name: Install Linting & Type-Checking Tools
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          pip install ruff mypy -r requirements.txt
 
-      - name: Check Python syntax
+      # Requirement 2: Python Syntax Check
+      # compileall verifies that all Python files in 'app' and 'tests' compile without syntax errors.
+      - name: Check Python Syntax
         run: |
           python -m compileall app tests
 
-      - name: Run Ruff
+      # Requirement 1: Ruff Linting
+      # Ruff checks code style, unused imports, dead code, and PEP 8 standards.
+      - name: Run Ruff Linter
         run: |
           ruff check app tests
 
-  test:
-    name: Run Automated Tests & Health Checks
+      # Requirement 3: Type Checking (Mypy)
+      # Mypy validates type hints across the codebase to catch type mismatches before runtime.
+      - name: Static Type Checking with Mypy
+        run: |
+          mypy app --ignore-missing-imports
+
+  # =========================================================================
+  # 2. SECURITY & VULNERABILITY SCANNING
+  # Scans dependencies for CVE vulnerabilities and checks git history for secrets.
+  # =========================================================================
+  security:
+    name: Security & Vulnerability Scanning
     runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Security Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit -r requirements.txt
+
+      # Requirement 7: Dependency Scan (pip-audit)
+      # pip-audit checks installed Python dependencies against known CVE security vulnerability databases.
+      - name: Dependency Security Vulnerability Scan (pip-audit)
+        run: |
+          pip-audit
+
+      # Requirement 8: Secret Scan (Gitleaks)
+      # Gitleaks scans commit history and files to prevent hardcoded passwords, tokens, or API keys from being leaked.
+      - name: Secret & Credential Leak Scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # =========================================================================
+  # 3. AUTOMATED TESTING & POSTGRESQL INTEGRATION
+  # Runs unit and PostgreSQL integration tests while generating coverage reports.
+  # =========================================================================
+  test:
+    name: Unit & PostgreSQL Integration Tests
+    runs-on: ubuntu-latest
+
+    # Service container for PostgreSQL Integration Tests
+    # Requirement 5: PostgreSQL Integration Tests setup
     services:
       postgres:
         image: postgres:16-alpine
@@ -52,18 +112,84 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install Dependencies
+      - name: Install Project & Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest-cov -r requirements.txt
+
+      # Requirement 4 & 5 & 6: Unit tests, PostgreSQL integration tests & Coverage report
+      # Runs pytest connecting to the live Postgres container and outputs terminal coverage stats.
+      - name: Run Unit & Integration Tests with Coverage Report
+        env:
+          DATABASE_URL: postgresql+psycopg2://pocketuser:pocketpass@localhost:5432/pocketledger_test
+        run: |
+          python -m pytest --cov=app --cov-report=term-missing
+
+  # =========================================================================
+  # 4. BUILD VERIFICATION & APP SMOKE TESTS
+  # Verifies Docker image build, application startup, and endpoint responsiveness.
+  # =========================================================================
+  build-and-smoke:
+    name: Build Verification & Health Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Requirement 11: Build Verification
+      # Verifies that the Docker container image builds cleanly without syntax or missing file errors.
+      - name: Docker Image Build Verification
+        run: |
+          docker build -t pocketledger:latest .
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Application Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Test Suite
-        env:
-          DATABASE_URL: postgresql+psycopg2://pocketuser:pocketpass@localhost:5432/pocketledger_test
+      # Requirement 9 & 10: Application Startup Check & Health Endpoint Smoke Test
+      # Starts uvicorn server in the background, waits for startup, and verifies live responses on /health and /ready endpoints.
+      - name: Application Startup & Health Endpoint Smoke Test
         run: |
-          python -m pytest
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
+          
+          echo "Waiting for application startup..."
+          for i in {1..15}; do
+            if curl -s http://127.0.0.1:8000/health > /dev/null; then
+              echo "Application started successfully!"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "Testing /health endpoint..."
+          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)
+          if [ "$HEALTH_STATUS" -ne 200 ]; then
+            echo "Health check failed with status code $HEALTH_STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+
+          echo "Testing /ready endpoint..."
+          READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ready)
+          if [ "$READY_STATUS" -ne 200 ]; then
+            echo "Readiness check failed with status code $READY_STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+
+          echo "All smoke tests passed successfully!"
+          kill $SERVER_PID
+
