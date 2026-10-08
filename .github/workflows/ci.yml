@@ -38,6 +38,6 @@ jobs:
 
       - name: Run Test Suite
         env:
-          DATABASE_URL: postgresql://pocketuser:pocketpass@localhost:5432/pocketledger_test
+          DATABASE_URL: postgresql+psycopg2://pocketuser:pocketpass@localhost:5432/pocketledger_test
         run: |
           python -m pytest

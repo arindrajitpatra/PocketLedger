@@ -6,6 +6,12 @@ from app.logger import logger
 
 db_url = settings.DATABASE_URL
 
+# Normalize database driver URL for PostgreSQL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql://") and "+psycopg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 connect_args = {}
 if db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
