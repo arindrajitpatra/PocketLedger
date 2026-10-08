@@ -23,15 +23,16 @@ def calculate_monthly_summary(
     all_totals_inr: dict[str, Decimal] = {}
 
     for tx in transactions:
+        category = str(tx.category)
         amount = Decimal(str(tx.amount))
-        all_totals_inr[tx.category] = all_totals_inr.get(tx.category, Decimal("0.00")) + amount
+        all_totals_inr[category] = all_totals_inr.get(category, Decimal("0.00")) + amount
 
         if tx.type == "income":
             total_income_inr += amount
-            income_totals_inr[tx.category] = income_totals_inr.get(tx.category, Decimal("0.00")) + amount
+            income_totals_inr[category] = income_totals_inr.get(category, Decimal("0.00")) + amount
         elif tx.type == "expense":
             total_expenses_inr += amount
-            expense_totals_inr[tx.category] = expense_totals_inr.get(tx.category, Decimal("0.00")) + amount
+            expense_totals_inr[category] = expense_totals_inr.get(category, Decimal("0.00")) + amount
 
     remaining_balance_inr = total_income_inr - total_expenses_inr
 
