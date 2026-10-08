@@ -1,0 +1,213 @@
+name: PocketLedger CD Pipeline (Multi-Environment Deployment)
+
+# Trigger CD pipeline on push to main branch or manually via workflow_dispatch
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  # =========================================================================
+  # 1. DEVELOPMENT ENVIRONMENT DEPLOYMENT (deploy-dev)
+  # Automatically deploys the latest build to the Development environment.
+  # =========================================================================
+  deploy-dev:
+    name: Deploy to Development (deploy-dev)
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Application Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Docker Container Image for Dev
+        run: |
+          echo "Building Docker container image for Development environment..."
+          docker build -t pocketledger:dev .
+
+      - name: Deploy to Development Environment
+        env:
+          ENV_NAME: dev
+          PORT: 8000
+        run: |
+          echo "Deploying PocketLedger application to Development environment..."
+          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
+          DEV_PID=$!
+          echo "Dev server started with PID $DEV_PID"
+          sleep 3
+
+          echo "Running Dev health check..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Dev deployment failed with status code $STATUS"
+            kill $DEV_PID
+            exit 1
+          fi
+          echo "Dev deployment succeeded! (HTTP $STATUS)"
+          kill $DEV_PID
+
+  # =========================================================================
+  # 2. QA ENVIRONMENT DEPLOYMENT (deploy-qa)
+  # Promotes application to QA environment after Dev deployment succeeds.
+  # =========================================================================
+  deploy-qa:
+    name: Deploy to QA (deploy-qa)
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    environment: deploy-qa
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Application Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Docker Container Image for QA
+        run: |
+          echo "Building Docker container image for QA environment..."
+          docker build -t pocketledger:qa .
+
+      - name: Deploy to QA Environment & Run Automated Smoke Tests
+        env:
+          ENV_NAME: qa
+          PORT: 8001
+        run: |
+          echo "Deploying PocketLedger application to QA environment..."
+          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
+          QA_PID=$!
+          echo "QA server started with PID $QA_PID"
+          sleep 3
+
+          echo "Running QA health & readiness smoke tests..."
+          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8001/health)
+          READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8001/ready)
+
+          if [ "$HEALTH_STATUS" -ne 200 ] || [ "$READY_STATUS" -ne 200 ]; then
+            echo "QA deployment smoke tests failed! (Health: $HEALTH_STATUS, Ready: $READY_STATUS)"
+            kill $QA_PID
+            exit 1
+          fi
+          echo "QA deployment and smoke tests passed successfully!"
+          kill $QA_PID
+
+  # =========================================================================
+  # 3. STAGING ENVIRONMENT DEPLOYMENT (deploy-staging)
+  # Promotes application to Staging environment for pre-release validation.
+  # =========================================================================
+  deploy-staging:
+    name: Deploy to Staging (deploy-staging)
+    needs: deploy-qa
+    runs-on: ubuntu-latest
+    environment: deploy-staging
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Application Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Docker Container Image for Staging
+        run: |
+          echo "Building Docker container image for Staging environment..."
+          docker build -t pocketledger:staging .
+
+      - name: Deploy to Staging Environment
+        env:
+          ENV_NAME: staging
+          PORT: 8002
+        run: |
+          echo "Deploying PocketLedger application to Staging environment..."
+          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
+          STAGING_PID=$!
+          echo "Staging server started with PID $STAGING_PID"
+          sleep 3
+
+          echo "Running Staging environment health verification..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8002/health)
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Staging deployment failed with status code $STATUS"
+            kill $STAGING_PID
+            exit 1
+          fi
+          echo "Staging deployment verified! (HTTP $STATUS)"
+          kill $STAGING_PID
+
+  # =========================================================================
+  # 4. PRODUCTION ENVIRONMENT DEPLOYMENT (deploy-production)
+  # Deploys application to Production environment.
+  # Note: Required reviewers configured in GitHub Environment "deploy-production"
+  # will automatically pause this step until manually approved.
+  # =========================================================================
+  deploy-production:
+    name: Deploy to Production (deploy-production)
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: deploy-production
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Application Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Production Docker Container Image
+        run: |
+          echo "Building final Production Docker container image..."
+          docker build -t pocketledger:production .
+
+      - name: Deploy to Production Environment
+        env:
+          ENV_NAME: production
+          PORT: 8080
+        run: |
+          echo "Deploying PocketLedger application to PRODUCTION environment..."
+          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
+          PROD_PID=$!
+          echo "Production server started with PID $PROD_PID"
+          sleep 3
+
+          echo "Performing live post-deployment health check on Production..."
+          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health)
+          READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ready)
+
+          if [ "$HEALTH_STATUS" -ne 200 ] || [ "$READY_STATUS" -ne 200 ]; then
+            echo "PRODUCTION DEPLOYMENT HEALTH CHECK FAILED!"
+            kill $PROD_PID
+            exit 1
+          fi
+          echo "PRODUCTION DEPLOYMENT SUCCESSFUL AND VERIFIED LIVE!"
+          kill $PROD_PID
