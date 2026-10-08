@@ -1,7 +1,8 @@
-from datetime import date as date_type, datetime
+from datetime import date as date_type
+from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ALLOWED_TRANSACTION_TYPES = {"income", "expense"}
 
@@ -10,7 +11,7 @@ class TransactionBase(BaseModel):
     amount: Decimal = Field(..., gt=0, decimal_places=2, max_digits=12, description="Monetary amount (greater than 0)")
     category: str = Field(..., min_length=1, max_length=50, description="Category name (non-empty)")
     date: date_type = Field(..., description="Transaction date (YYYY-MM-DD)")
-    description: Optional[str] = Field(None, max_length=255, description="Optional description (max 255 chars)")
+    description: str | None = Field(None, max_length=255, description="Optional description (max 255 chars)")
 
     @field_validator("type")
     @classmethod
@@ -39,15 +40,15 @@ class TransactionCreate(TransactionBase):
     pass
 
 class TransactionUpdate(BaseModel):
-    type: Optional[str] = None
-    amount: Optional[Decimal] = None
-    category: Optional[str] = None
-    date: Optional[date_type] = None
-    description: Optional[str] = None
+    type: str | None = None
+    amount: Decimal | None = None
+    category: str | None = None
+    date: date_type | None = None
+    description: str | None = None
 
     @field_validator("type")
     @classmethod
-    def validate_type(cls, v: Optional[str]) -> Optional[str]:
+    def validate_type(cls, v: str | None) -> str | None:
         if v is None:
             return v
         v_clean = v.lower().strip()
@@ -57,7 +58,7 @@ class TransactionUpdate(BaseModel):
 
     @field_validator("category")
     @classmethod
-    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+    def validate_category(cls, v: str | None) -> str | None:
         if v is None:
             return v
         v_clean = v.strip()
@@ -67,7 +68,7 @@ class TransactionUpdate(BaseModel):
 
     @field_validator("amount")
     @classmethod
-    def validate_amount(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+    def validate_amount(cls, v: Decimal | None) -> Decimal | None:
         if v is not None:
             if v <= Decimal("0.00"):
                 raise ValueError("Amount must be greater than zero")
@@ -76,14 +77,14 @@ class TransactionUpdate(BaseModel):
 
 class TransactionResponse(TransactionBase):
     id: int
-    user_id: Optional[str] = "default_user"
+    user_id: str | None = "default_user"
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 class PaginatedTransactionResponse(BaseModel):
-    items: List[TransactionResponse]
+    items: list[TransactionResponse]
     total: int
     page: int
     limit: int
@@ -95,14 +96,14 @@ class CategoryBreakdown(BaseModel):
     percentage: float
 
 class SummaryResponse(BaseModel):
-    month: Optional[str] = None  # YYYY-MM or None for all-time
+    month: str | None = None  # YYYY-MM or None for all-time
     currency: str = "INR"
     total_income: Decimal
     total_expenses: Decimal
     remaining_balance: Decimal
-    category_breakdown: List[CategoryBreakdown]
-    expense_category_breakdown: List[CategoryBreakdown]
-    income_category_breakdown: List[CategoryBreakdown]
+    category_breakdown: list[CategoryBreakdown]
+    expense_category_breakdown: list[CategoryBreakdown]
+    income_category_breakdown: list[CategoryBreakdown]
     transaction_count: int
 
 class HealthResponse(BaseModel):

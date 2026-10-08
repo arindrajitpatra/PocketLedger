@@ -1,12 +1,13 @@
 from decimal import Decimal
-from typing import List, Optional, Dict
+
 from app.models import Transaction
-from app.schemas import SummaryResponse, CategoryBreakdown
+from app.schemas import CategoryBreakdown, SummaryResponse
 from app.services.currency_service import convert_currency
 
+
 def calculate_monthly_summary(
-    transactions: List[Transaction],
-    month: Optional[str] = None,
+    transactions: list[Transaction],
+    month: str | None = None,
     currency: str = "INR"
 ) -> SummaryResponse:
     """
@@ -17,9 +18,9 @@ def calculate_monthly_summary(
     total_income_inr = Decimal("0.00")
     total_expenses_inr = Decimal("0.00")
 
-    expense_totals_inr: Dict[str, Decimal] = {}
-    income_totals_inr: Dict[str, Decimal] = {}
-    all_totals_inr: Dict[str, Decimal] = {}
+    expense_totals_inr: dict[str, Decimal] = {}
+    income_totals_inr: dict[str, Decimal] = {}
+    all_totals_inr: dict[str, Decimal] = {}
 
     for tx in transactions:
         amount = Decimal(str(tx.amount))
@@ -40,18 +41,18 @@ def calculate_monthly_summary(
     disp_balance = convert_currency(remaining_balance_inr, currency)
 
     # Expense category breakdown
-    expense_breakdown: List[CategoryBreakdown] = []
+    expense_breakdown: list[CategoryBreakdown] = []
     for cat, amt_inr in sorted(expense_totals_inr.items(), key=lambda x: x[1], reverse=True):
-        pct = float((amt_inr / total_expenses_inr * Decimal("100.0"))) if total_expenses_inr > 0 else 0.0
+        pct = float(amt_inr / total_expenses_inr * Decimal("100.0")) if total_expenses_inr > 0 else 0.0
         disp_amt = convert_currency(amt_inr, currency)
         expense_breakdown.append(
             CategoryBreakdown(category=cat, amount=disp_amt, percentage=round(pct, 1))
         )
 
     # Income category breakdown
-    income_breakdown: List[CategoryBreakdown] = []
+    income_breakdown: list[CategoryBreakdown] = []
     for cat, amt_inr in sorted(income_totals_inr.items(), key=lambda x: x[1], reverse=True):
-        pct = float((amt_inr / total_income_inr * Decimal("100.0"))) if total_income_inr > 0 else 0.0
+        pct = float(amt_inr / total_income_inr * Decimal("100.0")) if total_income_inr > 0 else 0.0
         disp_amt = convert_currency(amt_inr, currency)
         income_breakdown.append(
             CategoryBreakdown(category=cat, amount=disp_amt, percentage=round(pct, 1))
@@ -59,9 +60,9 @@ def calculate_monthly_summary(
 
     # Combined breakdown
     total_all_inr = total_income_inr + total_expenses_inr
-    all_breakdown: List[CategoryBreakdown] = []
+    all_breakdown: list[CategoryBreakdown] = []
     for cat, amt_inr in sorted(all_totals_inr.items(), key=lambda x: x[1], reverse=True):
-        pct = float((amt_inr / total_all_inr * Decimal("100.0"))) if total_all_inr > 0 else 0.0
+        pct = float(amt_inr / total_all_inr * Decimal("100.0")) if total_all_inr > 0 else 0.0
         disp_amt = convert_currency(amt_inr, currency)
         all_breakdown.append(
             CategoryBreakdown(category=cat, amount=disp_amt, percentage=round(pct, 1))

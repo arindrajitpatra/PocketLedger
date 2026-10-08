@@ -1,10 +1,12 @@
 import logging
 import sys
+
 from app.config import settings
+
 
 def setup_logger():
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
-    
+
     logger = logging.getLogger("pocketledger")
     logger.setLevel(log_level)
 

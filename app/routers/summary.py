@@ -1,10 +1,11 @@
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+
+from app import crud
 from app.database import get_db
 from app.schemas import SummaryResponse
-from app import crud
-from app.services import summary_service, currency_service
+from app.services import currency_service, summary_service
 
 router = APIRouter(prefix="/api", tags=["Summary"])
 
@@ -12,7 +13,7 @@ MONTH_PATTERN = r"^(19|20)\d\d-(0[1-9]|1[0-2])$"
 
 @router.get("/summary", response_model=SummaryResponse)
 def get_monthly_summary(
-    month: Optional[str] = Query(None, pattern=MONTH_PATTERN, description="Month in YYYY-MM format (01-12)"),
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="Month in YYYY-MM format (01-12)"),
     currency: str = Query("INR", description="Currency code (INR, USD, EUR, GBP)"),
     db: Session = Depends(get_db)
 ) -> SummaryResponse:

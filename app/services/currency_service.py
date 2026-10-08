@@ -8,9 +8,8 @@ so database queries remain fast, clean, and uncoupled from dynamic rates.
 """
 
 from decimal import Decimal
-from typing import Dict
 
-SUPPORTED_CURRENCIES: Dict[str, str] = {
+SUPPORTED_CURRENCIES: dict[str, str] = {
     "INR": "₹",
     "USD": "$",
     "EUR": "€",
@@ -18,7 +17,7 @@ SUPPORTED_CURRENCIES: Dict[str, str] = {
 }
 
 # Fixed conversion rates from base currency INR
-CONVERSION_RATES_FROM_INR: Dict[str, Decimal] = {
+CONVERSION_RATES_FROM_INR: dict[str, Decimal] = {
     "INR": Decimal("1.0"),
     "USD": Decimal("0.012"),
     "EUR": Decimal("0.011"),

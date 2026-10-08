@@ -1,12 +1,12 @@
 import os
-from typing import Set
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if available
 load_dotenv()
 
-VALID_ENVS: Set[str] = {"development", "testing", "production", "staging"}
-VALID_LOG_LEVELS: Set[str] = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+VALID_ENVS: set[str] = {"development", "testing", "production", "staging"}
+VALID_LOG_LEVELS: set[str] = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 class Settings:
     """

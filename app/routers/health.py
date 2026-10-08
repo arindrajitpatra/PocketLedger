@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status
-from app.schemas import HealthResponse, ReadyResponse
+
 from app.config import settings
 from app.database import check_db_connection
+from app.schemas import HealthResponse, ReadyResponse
 
 router = APIRouter(tags=["Health & Readiness"])
 

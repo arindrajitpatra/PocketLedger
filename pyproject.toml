@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+ignore = [
+    "B008",    # Allow FastAPI Depends() in route parameters
+    "BLE001",  # Allow catching generic Exception in DB readiness checks
+    "B904",    # Allow raise HTTPException inside except blocks
+    "E501",    # Line length limits
+]

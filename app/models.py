@@ -1,7 +1,9 @@
-from datetime import datetime, date, timezone
-from decimal import Decimal
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, Index
+from datetime import UTC, date, datetime
+
+from sqlalchemy import Column, Date, DateTime, Index, Integer, Numeric, String
+
 from app.database import Base
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -13,8 +15,8 @@ class Transaction(Base):
     category = Column(String(50), nullable=False, index=True)
     date = Column(Date, nullable=False, default=date.today, index=True)
     description = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     __table_args__ = (
         Index("idx_transactions_date_category", "date", "category"),

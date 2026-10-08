@@ -6,16 +6,19 @@ Multi-user authorization is planned for future lessons. Currently, all operation
 to 'default_user' as an intentional precursor to authentication.
 """
 
-from datetime import date as date_type, datetime, timezone
+from datetime import UTC, datetime
+from datetime import date as date_type
 from decimal import Decimal
-from typing import List, Optional, Tuple
-from sqlalchemy.orm import Session
+
 from sqlalchemy import extract, func, or_
+from sqlalchemy.orm import Session
+
+from app.logger import logger
 from app.models import Transaction
 from app.schemas import TransactionCreate, TransactionUpdate
-from app.logger import logger
 
-def validate_month_string(month_str: str) -> Tuple[int, int]:
+
+def validate_month_string(month_str: str) -> tuple[int, int]:
     """Validate and parse YYYY-MM month string."""
     try:
         parts = month_str.split("-")
@@ -50,7 +53,7 @@ def create_transaction(db: Session, tx_data: TransactionCreate, user_id: str = "
         logger.error(f"Database error during transaction creation: {e}")
         raise
 
-def get_transaction_by_id(db: Session, tx_id: int, user_id: str = "default_user") -> Optional[Transaction]:
+def get_transaction_by_id(db: Session, tx_id: int, user_id: str = "default_user") -> Transaction | None:
     """Fetch single transaction by ID and user ownership."""
     return db.query(Transaction).filter(
         Transaction.id == tx_id,
@@ -60,10 +63,10 @@ def get_transaction_by_id(db: Session, tx_id: int, user_id: str = "default_user"
 def get_filtered_transactions_query(
     db: Session,
     user_id: str = "default_user",
-    month: Optional[str] = None,
-    category: Optional[str] = None,
-    tx_type: Optional[str] = None,
-    search: Optional[str] = None
+    month: str | None = None,
+    category: str | None = None,
+    tx_type: str | None = None,
+    search: str | None = None
 ):
     """
     Build reusable SQLAlchemy query for filtering transactions.
@@ -97,13 +100,13 @@ def get_filtered_transactions_query(
 def get_paginated_transactions(
     db: Session,
     user_id: str = "default_user",
-    month: Optional[str] = None,
-    category: Optional[str] = None,
-    tx_type: Optional[str] = None,
-    search: Optional[str] = None,
+    month: str | None = None,
+    category: str | None = None,
+    tx_type: str | None = None,
+    search: str | None = None,
     page: int = 1,
     limit: int = 20
-) -> Tuple[List[Transaction], int]:
+) -> tuple[list[Transaction], int]:
     """Fetch paginated transactions and total count."""
     query = get_filtered_transactions_query(
         db=db,
@@ -117,17 +120,17 @@ def get_paginated_transactions(
     total = query.count()
     offset = (page - 1) * limit
     items = query.order_by(Transaction.date.desc(), Transaction.id.desc()).offset(offset).limit(limit).all()
-    
+
     return items, total
 
 def get_all_matching_transactions(
     db: Session,
     user_id: str = "default_user",
-    month: Optional[str] = None,
-    category: Optional[str] = None,
-    tx_type: Optional[str] = None,
-    search: Optional[str] = None
-) -> List[Transaction]:
+    month: str | None = None,
+    category: str | None = None,
+    tx_type: str | None = None,
+    search: str | None = None
+) -> list[Transaction]:
     """Fetch all matching transactions without pagination."""
     query = get_filtered_transactions_query(
         db=db,
@@ -144,7 +147,7 @@ def update_transaction(
     tx_id: int,
     tx_data: TransactionUpdate,
     user_id: str = "default_user"
-) -> Optional[Transaction]:
+) -> Transaction | None:
     """
     Update existing transaction.
     Supports clearing nullable fields (such as description) when explicitly supplied as null.
@@ -157,7 +160,7 @@ def update_transaction(
     for key, value in update_dict.items():
         setattr(db_tx, key, value)
 
-    db_tx.updated_at = datetime.now(timezone.utc)
+    db_tx.updated_at = datetime.now(UTC)
     try:
         db.commit()
         db.refresh(db_tx)
@@ -183,7 +186,7 @@ def delete_transaction(db: Session, tx_id: int, user_id: str = "default_user") -
         logger.error(f"Database error during transaction deletion (ID {tx_id}): {e}")
         raise
 
-def seed_sample_data(db: Session, user_id: str = "default_user") -> List[Transaction]:
+def seed_sample_data(db: Session, user_id: str = "default_user") -> list[Transaction]:
     """Development helper script to seed sample data."""
     sample_items = [
         {"type": "income", "amount": Decimal("50000.00"), "category": "Salary", "date": date_type.today(), "description": "Monthly Salary"},
