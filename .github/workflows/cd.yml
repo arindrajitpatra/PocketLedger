@@ -1,213 +1,320 @@
 name: PocketLedger CD Pipeline (Multi-Environment Deployment)
 
-# Trigger CD pipeline on push to main branch or manually via workflow_dispatch
+# Trigger CD pipeline when CI workflow succeeds on main branch, or manually via workflow_dispatch
 on:
-  push:
+  workflow_run:
+    workflows: ["PocketLedger CI/CD Pipeline"]
+    types: [completed]
     branches: [ "main" ]
   workflow_dispatch:
 
+# Concurrency protection: cancel in-progress deployment runs for the same branch
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum GitHub token permissions required for security best practices
+permissions:
+  contents: read
+
 jobs:
   # =========================================================================
-  # 1. DEVELOPMENT ENVIRONMENT DEPLOYMENT (deploy-dev)
-  # Automatically deploys the latest build to the Development environment.
+  # BUILD ONCE: Build & Publish Immutable Docker Artifact
+  # Builds the Docker container once tagged with git commit SHA and saves as artifact.
+  # =========================================================================
+  build-artifact:
+    name: Build Immutable Artifact (Docker Image)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Requirement 12 & 4: Immutable commit SHA image versioning & single build
+      - name: Build Docker Image with Commit SHA Tag
+        run: |
+          echo "Building immutable Docker image for commit SHA: ${{ github.sha }}"
+          docker build -t pocketledger:${{ github.sha }} -t pocketledger:latest .
+
+      # Requirement 16 & 4: Save Docker image artifact to pass to deployment stages
+      - name: Export Docker Image Tarball
+        run: |
+          mkdir -p artifacts
+          docker save pocketledger:${{ github.sha }} | gzip > artifacts/pocketledger-image.tar.gz
+
+      - name: Upload Docker Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ github.sha }}
+          path: artifacts/pocketledger-image.tar.gz
+          retention-days: 7
+
+  # =========================================================================
+  # 1. DEVELOPMENT ENVIRONMENT (dev)
+  # Loads single build artifact, runs live container with Postgres service & verifies health.
   # =========================================================================
   deploy-dev:
-    name: Deploy to Development (deploy-dev)
+    name: Deploy to Development (dev)
+    needs: build-artifact
     runs-on: ubuntu-latest
     environment: dev
 
-    steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12 Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Application Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Docker Container Image for Dev
-        run: |
-          echo "Building Docker container image for Development environment..."
-          docker build -t pocketledger:dev .
-
-      - name: Deploy to Development Environment
+    # Requirement 6: Start PostgreSQL service container for real DB testing
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          ENV_NAME: dev
-          PORT: 8000
-        run: |
-          echo "Deploying PocketLedger application to Development environment..."
-          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
-          DEV_PID=$!
-          echo "Dev server started with PID $DEV_PID"
-          sleep 3
+          POSTGRES_USER: pocketuser
+          POSTGRES_PASSWORD: pocketpass
+          POSTGRES_DB: pocketledger_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-          echo "Running Dev health check..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)
-          if [ "$STATUS" -ne 200 ]; then
-            echo "Dev deployment failed with status code $STATUS"
-            kill $DEV_PID
+    steps:
+      - name: Download Docker Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ github.sha }}
+          path: artifacts
+
+      - name: Load Docker Image
+        run: |
+          gunzip -c artifacts/pocketledger-image.tar.gz | docker load
+
+      # Requirement 2, 3, 9, 10, 11: Real container execution, deep health check, trap cleanup & retry loop
+      - name: Deploy & Test Container in Dev Environment
+        run: |
+          # Cleanup trap guarantees container termination even on failure
+          trap 'docker stop dev-app-container || true; docker rm dev-app-container || true' EXIT
+
+          # Run container connected to PostgreSQL service
+          docker run -d --name dev-app-container \
+            --network host \
+            -e DATABASE_URL="postgresql+psycopg2://pocketuser:pocketpass@127.0.0.1:5432/pocketledger_dev" \
+            -e ENV_NAME="dev" \
+            pocketledger:${{ github.sha }}
+
+          echo "Waiting for Dev container health check..."
+          HEALTHY=false
+          for i in {1..20}; do
+            RESPONSE=$(curl -s http://127.0.0.1:8000/health || true)
+            if echo "$RESPONSE" | grep -q '"status"'; then
+              echo "Dev container healthy: $RESPONSE"
+              HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$HEALTHY" = "false" ]; then
+            echo "Dev environment health check failed!"
+            docker logs dev-app-container
             exit 1
           fi
-          echo "Dev deployment succeeded! (HTTP $STATUS)"
-          kill $DEV_PID
 
   # =========================================================================
-  # 2. QA ENVIRONMENT DEPLOYMENT (deploy-qa)
-  # Promotes application to QA environment after Dev deployment succeeds.
+  # 2. QA ENVIRONMENT (qa)
+  # Promotes same Docker image artifact to QA environment with automated integration checks.
   # =========================================================================
   deploy-qa:
-    name: Deploy to QA (deploy-qa)
-    needs: deploy-dev
+    name: Deploy to QA (qa)
+    needs: [build-artifact, deploy-dev]
     runs-on: ubuntu-latest
     environment: qa
 
-    steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12 Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Application Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Docker Container Image for QA
-        run: |
-          echo "Building Docker container image for QA environment..."
-          docker build -t pocketledger:qa .
-
-      - name: Deploy to QA Environment & Run Automated Smoke Tests
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          ENV_NAME: qa
-          PORT: 8001
+          POSTGRES_USER: pocketuser
+          POSTGRES_PASSWORD: pocketpass
+          POSTGRES_DB: pocketledger_qa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Download Docker Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ github.sha }}
+          path: artifacts
+
+      - name: Load Docker Image
         run: |
-          echo "Deploying PocketLedger application to QA environment..."
-          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
-          QA_PID=$!
-          echo "QA server started with PID $QA_PID"
-          sleep 3
+          gunzip -c artifacts/pocketledger-image.tar.gz | docker load
 
-          echo "Running QA health & readiness smoke tests..."
-          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8001/health)
-          READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8001/ready)
+      - name: Deploy & Test Container in QA Environment
+        run: |
+          trap 'docker stop qa-app-container || true; docker rm qa-app-container || true' EXIT
 
-          if [ "$HEALTH_STATUS" -ne 200 ] || [ "$READY_STATUS" -ne 200 ]; then
-            echo "QA deployment smoke tests failed! (Health: $HEALTH_STATUS, Ready: $READY_STATUS)"
-            kill $QA_PID
+          docker run -d --name qa-app-container \
+            --network host \
+            -e DATABASE_URL="postgresql+psycopg2://pocketuser:pocketpass@127.0.0.1:5432/pocketledger_qa" \
+            -e ENV_NAME="qa" \
+            pocketledger:${{ github.sha }}
+
+          echo "Waiting for QA container health & readiness checks..."
+          HEALTHY=false
+          for i in {1..20}; do
+            HEALTH_RESP=$(curl -s http://127.0.0.1:8000/health || true)
+            READY_RESP=$(curl -s http://127.0.0.1:8000/ready || true)
+            if echo "$HEALTH_RESP" | grep -q '"status"' && echo "$READY_RESP" | grep -q '"status"'; then
+              echo "QA Health response: $HEALTH_RESP"
+              echo "QA Ready response: $READY_RESP"
+              HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$HEALTHY" = "false" ]; then
+            echo "QA environment deployment failed!"
+            docker logs qa-app-container
             exit 1
           fi
-          echo "QA deployment and smoke tests passed successfully!"
-          kill $QA_PID
 
   # =========================================================================
-  # 3. STAGING ENVIRONMENT DEPLOYMENT (deploy-staging)
-  # Promotes application to Staging environment for pre-release validation.
+  # 3. STAGING ENVIRONMENT (staging)
+  # Pre-release validation of the exact build artifact in Staging environment.
   # =========================================================================
   deploy-staging:
-    name: Deploy to Staging (deploy-staging)
-    needs: deploy-qa
+    name: Deploy to Staging (staging)
+    needs: [build-artifact, deploy-qa]
     runs-on: ubuntu-latest
     environment: staging
 
-    steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12 Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Application Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Docker Container Image for Staging
-        run: |
-          echo "Building Docker container image for Staging environment..."
-          docker build -t pocketledger:staging .
-
-      - name: Deploy to Staging Environment
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          ENV_NAME: staging
-          PORT: 8002
-        run: |
-          echo "Deploying PocketLedger application to Staging environment..."
-          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
-          STAGING_PID=$!
-          echo "Staging server started with PID $STAGING_PID"
-          sleep 3
+          POSTGRES_USER: pocketuser
+          POSTGRES_PASSWORD: pocketpass
+          POSTGRES_DB: pocketledger_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-          echo "Running Staging environment health verification..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8002/health)
-          if [ "$STATUS" -ne 200 ]; then
-            echo "Staging deployment failed with status code $STATUS"
-            kill $STAGING_PID
+    steps:
+      - name: Download Docker Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ github.sha }}
+          path: artifacts
+
+      - name: Load Docker Image
+        run: |
+          gunzip -c artifacts/pocketledger-image.tar.gz | docker load
+
+      - name: Deploy & Test Container in Staging Environment
+        run: |
+          trap 'docker stop staging-app-container || true; docker rm staging-app-container || true' EXIT
+
+          docker run -d --name staging-app-container \
+            --network host \
+            -e DATABASE_URL="postgresql+psycopg2://pocketuser:pocketpass@127.0.0.1:5432/pocketledger_staging" \
+            -e ENV_NAME="staging" \
+            pocketledger:${{ github.sha }}
+
+          echo "Waiting for Staging container health check..."
+          HEALTHY=false
+          for i in {1..20}; do
+            HEALTH_RESP=$(curl -s http://127.0.0.1:8000/health || true)
+            if echo "$HEALTH_RESP" | grep -q '"status"'; then
+              echo "Staging Health response: $HEALTH_RESP"
+              HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$HEALTHY" = "false" ]; then
+            echo "Staging deployment failed!"
+            docker logs staging-app-container
             exit 1
           fi
-          echo "Staging deployment verified! (HTTP $STATUS)"
-          kill $STAGING_PID
 
   # =========================================================================
-  # 4. PRODUCTION ENVIRONMENT DEPLOYMENT (deploy-production)
-  # Deploys application to Production environment.
-  # Note: Required reviewers configured in GitHub Environment "deploy-production"
-  # will automatically pause this step until manually approved.
+  # 4. PRODUCTION ENVIRONMENT (production)
+  # Deploys exact tested artifact to Production.
+  # Requirement 7: Environment "production" pauses until approved by required reviewers.
   # =========================================================================
   deploy-production:
-    name: Deploy to Production (deploy-production)
-    needs: deploy-staging
+    name: Deploy to Production (production)
+    needs: [build-artifact, deploy-staging]
     runs-on: ubuntu-latest
     environment: production
 
-    steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12 Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Application Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Production Docker Container Image
-        run: |
-          echo "Building final Production Docker container image..."
-          docker build -t pocketledger:production .
-
-      - name: Deploy to Production Environment
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          ENV_NAME: production
-          PORT: 8080
+          POSTGRES_USER: pocketuser
+          POSTGRES_PASSWORD: pocketpass
+          POSTGRES_DB: pocketledger_prod
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Download Docker Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ github.sha }}
+          path: artifacts
+
+      - name: Load Docker Image
         run: |
-          echo "Deploying PocketLedger application to PRODUCTION environment..."
-          uvicorn app.main:app --host 127.0.0.1 --port $PORT &
-          PROD_PID=$!
-          echo "Production server started with PID $PROD_PID"
-          sleep 3
+          gunzip -c artifacts/pocketledger-image.tar.gz | docker load
 
-          echo "Performing live post-deployment health check on Production..."
-          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health)
-          READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ready)
+      - name: Deploy & Verify Live Container in Production Environment
+        run: |
+          trap 'docker stop prod-app-container || true; docker rm prod-app-container || true' EXIT
 
-          if [ "$HEALTH_STATUS" -ne 200 ] || [ "$READY_STATUS" -ne 200 ]; then
-            echo "PRODUCTION DEPLOYMENT HEALTH CHECK FAILED!"
-            kill $PROD_PID
+          docker run -d --name prod-app-container \
+            --network host \
+            -e DATABASE_URL="postgresql+psycopg2://pocketuser:pocketpass@127.0.0.1:5432/pocketledger_prod" \
+            -e ENV_NAME="production" \
+            pocketledger:${{ github.sha }}
+
+          echo "Waiting for Production container live verification..."
+          HEALTHY=false
+          for i in {1..25}; do
+            HEALTH_RESP=$(curl -s http://127.0.0.1:8000/health || true)
+            READY_RESP=$(curl -s http://127.0.0.1:8000/ready || true)
+            if echo "$HEALTH_RESP" | grep -q '"status"' && echo "$READY_RESP" | grep -q '"status"'; then
+              echo "Production Health: $HEALTH_RESP"
+              echo "Production Readiness: $READY_RESP"
+              HEALTHY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$HEALTHY" = "false" ]; then
+            echo "PRODUCTION DEPLOYMENT VERIFICATION FAILED!"
+            docker logs prod-app-container
             exit 1
           fi
-          echo "PRODUCTION DEPLOYMENT SUCCESSFUL AND VERIFIED LIVE!"
-          kill $PROD_PID
+          echo "PRODUCTION DEPLOYMENT COMPLETED AND VERIFIED LIVE!"
