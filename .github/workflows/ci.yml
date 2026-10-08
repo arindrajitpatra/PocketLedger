@@ -40,4 +40,4 @@ jobs:
         env:
           DATABASE_URL: postgresql://pocketuser:pocketpass@localhost:5432/pocketledger_test
         run: |
-          pytest
+          python -m pytest

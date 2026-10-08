@@ -1,3 +1,4 @@
+import os
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,14 +8,22 @@ from fastapi.testclient import TestClient
 from app.database import Base, get_db
 from app.main import app
 
-# Shared In-memory SQLite database using StaticPool for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+# Database URL for testing (defaults to SQLite in-memory, or PostgreSQL from environment)
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///:memory:")
+
+connect_args = {}
+engine_kwargs = {}
+
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+    engine_kwargs["poolclass"] = StaticPool
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool
+    connect_args=connect_args,
+    **engine_kwargs
 )
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture(scope="function")
