@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PocketLedger - Personal Expense Tracker</title>
+    <meta name="description" content="Track income, expenses, category spending, and monthly financial summaries with PocketLedger.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Error Banner -->
+        <div id="error-banner" class="alert-banner" style="display: none;">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span id="error-message">An error occurred.</span>
+            <button onclick="document.getElementById('error-banner').style.display='none'" class="close-alert">&times;</button>
+        </div>
+
+        <!-- Header Navbar -->
+        <header>
+            <div class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-wallet"></i>
+                </div>
+                <div class="brand-title">
+                    <h1>PocketLedger</h1>
+                    <p>Smart Personal Expense & Income Tracking</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <select id="currency-select" class="currency-select" title="Choose Currency">
+                    <option value="INR">₹ INR (Rupee)</option>
+                    <option value="USD">$ USD (Dollar)</option>
+                    <option value="EUR">€ EUR (Euro)</option>
+                    <option value="GBP">£ GBP (Pound)</option>
+                </select>
+                <button id="export-csv-btn" class="btn btn-secondary">
+                    <i class="fa-solid fa-file-csv"></i> Export CSV
+                </button>
+                <button id="seed-data-btn" class="btn btn-secondary" title="Seed development data">
+                    <i class="fa-solid fa-database"></i> Seed Samples
+                </button>
+                <button id="add-tx-btn" class="btn btn-primary">
+                    <i class="fa-solid fa-plus"></i> Add Entry
+                </button>
+            </div>
+        </header>
+
+        <!-- Key Financial Metrics Cards -->
+        <section class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Total Income</span>
+                    <div class="metric-icon icon-income"><i class="fa-solid fa-arrow-down-left"></i></div>
+                </div>
+                <div class="metric-value" id="val-income">₹0.00</div>
+                <div class="metric-footer"><i class="fa-solid fa-circle-check text-success"></i> Total money earned</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Total Expenses</span>
+                    <div class="metric-icon icon-expense"><i class="fa-solid fa-arrow-up-right"></i></div>
+                </div>
+                <div class="metric-value" id="val-expenses">₹0.00</div>
+                <div class="metric-footer"><i class="fa-solid fa-chart-line"></i> Total money spent</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Remaining Balance</span>
+                    <div class="metric-icon icon-balance"><i class="fa-solid fa-scale-balanced"></i></div>
+                </div>
+                <div class="metric-value" id="val-balance">₹0.00</div>
+                <div class="metric-footer" id="val-balance-status">Income - Expenses</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-title">Total Transactions</span>
+                    <div class="metric-icon icon-count"><i class="fa-solid fa-receipt"></i></div>
+                </div>
+                <div class="metric-value" id="val-count">0</div>
+                <div class="metric-footer">Entries recorded</div>
+            </div>
+        </section>
+
+        <!-- Main Dashboard View Grid -->
+        <div class="dashboard-grid">
+            <!-- Left Panel: Transaction Feed & Filtering -->
+            <main class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title"><i class="fa-solid fa-list-check"></i> Transaction History</h2>
+                    <div id="loading-spinner" class="spinner" style="display: none;">
+                        <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+
+                <!-- Filter Controls Bar -->
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <span class="filter-label">Month:</span>
+                        <input type="month" id="filter-month" class="text-input" style="padding: 6px 10px;">
+                    </div>
+                    <div class="filter-group">
+                        <span class="filter-label">Category:</span>
+                        <select id="filter-category" class="select-input" style="padding: 6px 10px;">
+                            <option value="all">All Categories</option>
+                            <option value="Salary">Salary</option>
+                            <option value="Rent">Rent</option>
+                            <option value="Food">Food</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Shopping">Shopping</option>
+                            <option value="Bills">Bills</option>
+                            <option value="Freelance">Freelance</option>
+                            <option value="Investment">Investment</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <span class="filter-label">Type:</span>
+                        <select id="filter-type" class="select-input" style="padding: 6px 10px;">
+                            <option value="all">All Types</option>
+                            <option value="income">Income</option>
+                            <option value="expense">Expense</option>
+                        </select>
+                    </div>
+                    <div class="filter-group" style="flex-grow: 1;">
+                        <input type="text" id="filter-search" class="text-input" placeholder="Search description..." style="width: 100%; padding: 6px 12px;">
+                    </div>
+                    <button id="clear-filters-btn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">
+                        <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                </div>
+
+                <!-- Table View -->
+                <div class="table-responsive">
+                    <table class="transaction-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Description</th>
+                                <th>Amount</th>
+                                <th style="text-align: right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transaction-rows">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <p>No transactions found matching your criteria.</p>
+                </div>
+
+                <!-- Pagination Footer -->
+                <div id="pagination-controls" style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 20px;">
+                    <!-- Populated dynamically -->
+                </div>
+            </main>
+
+            <!-- Right Panel: Spending Breakdown -->
+            <aside class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title"><i class="fa-solid fa-pie-chart"></i> Spending Breakdown</h2>
+                </div>
+                <div id="category-breakdown-list" class="category-list">
+                    <!-- Category breakdown bars populated dynamically -->
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Modal for Adding / Editing Transaction -->
+    <div id="tx-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="modal-title"><i class="fa-solid fa-plus-circle"></i> Add Transaction</h3>
+                <button id="modal-close" class="close-btn">&times;</button>
+            </div>
+            <form id="tx-form">
+                <input type="hidden" id="tx-id">
+                
+                <div class="form-group">
+                    <label class="form-label" for="tx-type">Transaction Type</label>
+                    <select id="tx-type" class="select-input form-control" required>
+                        <option value="income">Income (+)</option>
+                        <option value="expense" selected>Expense (-)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="tx-amount">Amount</label>
+                    <input type="number" id="tx-amount" class="text-input form-control" step="0.01" min="0.01" placeholder="e.g. 4500.00" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="tx-category">Category</label>
+                    <select id="tx-category" class="select-input form-control" required>
+                        <option value="Food">Food</option>
+                        <option value="Travel">Travel</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Shopping">Shopping</option>
+                        <option value="Bills">Bills</option>
+                        <option value="Salary">Salary</option>
+                        <option value="Freelance">Freelance</option>
+                        <option value="Investment">Investment</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="tx-date">Date</label>
+                    <input type="date" id="tx-date" class="text-input form-control" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="tx-description">Description (Optional)</label>
+                    <input type="text" id="tx-description" class="text-input form-control" placeholder="e.g. Dinner with friends" maxlength="255">
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button type="button" id="modal-cancel" class="btn btn-secondary" style="flex: 1;">Cancel</button>
+                    <button type="submit" id="modal-submit" class="btn btn-primary" style="flex: 1;">Save Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- JS App -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
